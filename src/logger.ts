@@ -3,31 +3,84 @@ import chalk from 'chalk';
 import {config} from './config';
 import winston from 'winston';
 
-const prettyJson = winston.format.printf(info => {
-  const timestamp = new Date().toLocaleTimeString();
+interface StatusMap {
+  [key: string]: {
+    line: number;
+    message: string;
+  };
+}
 
-  let out = `${chalk.grey(`[${timestamp}]`)} ${info.level} ${chalk.grey(
-    '::'
-  )} ${info.message}`;
+// Track the line number for each product
+const statusMap: StatusMap = {};
+let initialized = false;
+let totalLines = 0;
 
-  if (Object.keys(info.metadata).length > 0) {
-    out = `${out} ${chalk.magenta(JSON.stringify(info.metadata, null, 2))}`;
+// Initialize the display with all websites and products
+const initializeDisplay = (stores: Store[], products: {store: Store; link: Link}[]) => {
+  if (initialized) return;
+  
+  // Clear screen
+  process.stdout.write('\x1Bc');
+  
+  // Group products by store
+  const storeGroups = products.reduce((acc, {store, link}) => {
+    if (!acc[store.name]) {
+      acc[store.name] = [];
+    }
+    acc[store.name].push(link);
+    return acc;
+  }, {} as Record<string, Link[]>);
+  
+  let currentLine = 0;
+  
+  // Print each store section with placeholders
+  Object.entries(storeGroups).sort().forEach(([storeName, links]) => {
+    // Print store header
+    process.stdout.write(`[${storeName.toLowerCase()}]\n`);
+    currentLine++;
+    
+    // Print each product line with placeholder
+    links.forEach(link => {
+      const id = `${storeName}-${link.brand}-${link.model}`;
+      statusMap[id] = {
+        line: currentLine,
+        message: `  ✖  [${link.brand} (${link.series})] ${link.model} :: INITIALIZING...`
+      };
+      process.stdout.write(`${statusMap[id].message}\n`);
+      currentLine++;
+    });
+  });
+  
+  totalLines = currentLine;
+  initialized = true;
+};
+
+const updateLine = (lineNumber: number, text: string) => {
+  // Save cursor position
+  process.stdout.write('\x1B7');
+  // Move to line
+  process.stdout.write(`\x1B[${lineNumber};0H`);
+  // Clear line and write new text
+  process.stdout.write('\x1B[2K' + text);
+  // Restore cursor position
+  process.stdout.write('\x1B8');
+};
+
+const updateStatus = (store: Store, link: Link, message: string) => {
+  const id = `${store.name}-${link.brand}-${link.model}`;
+  if (statusMap[id]) {
+    statusMap[id].message = `  ${message}`;
+    updateLine(statusMap[id].line, statusMap[id].message);
   }
+};
 
-  return out;
-});
+function buildProductString(link: Link, store: Store, color?: boolean): string {
+  return `[${link.brand} (${link.series})] ${link.model}`;
+}
 
-export const logger = winston.createLogger({
-  format: winston.format.combine(
-    winston.format.colorize(),
-    winston.format.metadata({
-      fillExcept: ['level', 'message', 'timestamp'],
-    }),
-    prettyJson
-  ),
-  level: config.logLevel,
-  transports: [new winston.transports.Console({})],
-});
+function buildSetupString(topic: string, store: Store, color?: boolean): string {
+  return `[setup (${topic})]`;
+}
 
 export const Print = {
   backoff(
@@ -36,232 +89,127 @@ export const Print = {
     parameters: {delay: number; statusCode: number},
     color?: boolean
   ): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow(
-          `BACKOFF DELAY status=${parameters.statusCode} delay=${parameters.delay}`
-        )
-      );
-    }
-
-    return `✖ ${buildProductString(link, store)} :: BACKOFF DELAY status=${
-      parameters.statusCode
-    } delay=${parameters.delay}`;
+    const message = `✖  ${buildProductString(link, store)} :: BACKOFF DELAY status=${parameters.statusCode} delay=${parameters.delay} [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   badStatusCode(
     link: Link,
     store: Store,
     statusCode: number,
     color?: boolean
   ): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow(`STATUS CODE ERROR ${statusCode}`)
-      );
+    let statusMessage = '';
+    switch (statusCode) {
+      case 403:
+        statusMessage = 'ACCESS DENIED (Possible rate limiting or automation detection)';
+        break;
+      case 404:
+        statusMessage = link.url.includes('TBD') ? 'PLACEHOLDER URL (Product page not created yet)' : 'PAGE NOT FOUND';
+        break;
+      case 410:
+        statusMessage = 'URL PERMANENTLY REMOVED';
+        break;
+      case 429:
+        statusMessage = 'RATE LIMITED';
+        break;
+      case 503:
+        statusMessage = 'SERVICE UNAVAILABLE (Possible Cloudflare protection)';
+        break;
+      default:
+        statusMessage = `STATUS CODE ERROR ${statusCode}`;
     }
 
-    return `✖ ${buildProductString(
-      link,
-      store
-    )} :: STATUS CODE ERROR ${statusCode}`;
+    const message = `✖  ${buildProductString(link, store)} :: ${statusMessage} [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   bannedSeller(link: Link, store: Store, color?: boolean): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow('BANNED SELLER')
-      );
-    }
-
-    return `✖ ${buildProductString(link, store)} :: BANNED SELLER`;
+    const message = `✖  ${buildProductString(link, store)} :: BANNED SELLER [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   captcha(link: Link, store: Store, color?: boolean): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow('CAPTCHA')
-      );
-    }
-
-    return `✖ ${buildProductString(link, store)} :: CAPTCHA`;
+    const message = `✖  ${buildProductString(link, store)} :: CAPTCHA [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   cloudflare(link: Link, store: Store, color?: boolean): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow('CLOUDFLARE, WAITING')
-      );
-    }
-
-    return `✖ ${buildProductString(link, store)} :: CLOUDFLARE, WAITING`;
+    const message = `✖  ${buildProductString(link, store)} :: CLOUDFLARE, WAITING [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   inStock(link: Link, store: Store, color?: boolean, sms?: boolean): string {
-    const productString = `${buildProductString(link, store)} :: IN STOCK`;
-
-    if (color) {
-      return chalk.bgGreen.white.bold(`🚀🚨 ${productString} 🚨🚀`);
-    }
-
-    if (sms) {
-      return productString;
-    }
-
-    return `🚀🚨 ${productString} 🚨🚀`;
+    const message = sms 
+      ? `${buildProductString(link, store)} :: IN STOCK`
+      : `🚀🚨 ${buildProductString(link, store)} :: IN STOCK 🚨🚀 [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   inStockWaiting(link: Link, store: Store, color?: boolean): string {
-    if (color) {
-      return (
-        'ℹ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow('IN STOCK, WAITING')
-      );
-    }
-
-    return `ℹ ${buildProductString(link, store)} :: IN STOCK, WAITING`;
+    const message = `✖  ${buildProductString(link, store)} :: IN STOCK, WAITING [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   maxPrice(
     link: Link,
     store: Store,
     maxPrice: number,
     color?: boolean
   ): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow(
-          `IN STOCK, PRICE ${link.price ?? ''} EXCEEDS LIMIT ${maxPrice}`
-        )
-      );
-    }
-
-    return `✖ ${buildProductString(link, store)} :: PRICE ${
-      link.price ?? ''
-    } EXCEEDS LIMIT ${maxPrice}`;
+    const message = `✖  ${buildProductString(link, store)} :: PRICE ${maxPrice} [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   message(
     message: string,
-    topic: string,
+    series: string,
     store: Store,
     color?: boolean
   ): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildSetupString(topic, store, true) +
-        ' :: ' +
-        chalk.yellow(message)
-      );
-    }
-
-    return `✖ ${buildSetupString(topic, store)} :: ${message}`;
+    return `✖  [setup (${series})] :: ${message} [Last update: ${new Date().toLocaleTimeString()}]`;
   },
+
   noResponse(link: Link, store: Store, color?: boolean): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow('NO RESPONSE')
-      );
-    }
-
-    return `✖ ${buildProductString(link, store)} :: NO RESPONSE`;
+    const message = `✖  ${buildProductString(link, store)} :: NO RESPONSE [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   outOfStock(link: Link, store: Store, color?: boolean): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.red('OUT OF STOCK')
-      );
-    }
-
-    return `✖ ${buildProductString(link, store)} :: OUT OF STOCK`;
+    const message = `✖  ${buildProductString(link, store)} :: OUT OF STOCK [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   productInStock(link: Link): string {
     let productString = `Product Page: ${link.url}`;
     if (link.cartUrl) productString += `\nAdd To Cart Link: ${link.cartUrl}`;
-
     return productString;
   },
+
   rateLimit(link: Link, store: Store, color?: boolean): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow('RATE LIMIT EXCEEDED')
-      );
-    }
-
-    return `✖ ${buildProductString(link, store)} :: RATE LIMIT EXCEEDED`;
+    const message = `✖  ${buildProductString(link, store)} :: RATE LIMIT EXCEEDED [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
   },
+
   recursionLimit(link: Link, store: Store, color?: boolean): string {
-    if (color) {
-      return (
-        '✖ ' +
-        buildProductString(link, store, true) +
-        ' :: ' +
-        chalk.yellow('CLOUDFLARE RETRY LIMIT REACHED, ABORT')
-      );
-    }
-
-    return `✖ ${buildProductString(
-      link,
-      store
-    )} :: CLOUDFLARE RETRY LIMIT REACHED, ABORT`;
-  },
+    const message = `✖  ${buildProductString(link, store)} :: CLOUDFLARE RETRY LIMIT REACHED, ABORT [Last update: ${new Date().toLocaleTimeString()}]`;
+    updateStatus(store, link, message);
+    return message;
+  }
 };
 
-function buildSetupString(
-  topic: string,
-  store: Store,
-  color?: boolean
-): string {
-  if (color) {
-    return chalk.cyan(`[${store.name}]`) + chalk.grey(` [setup (${topic})]`);
-  }
-
-  return `[${store.name}] [setup (${topic})]`;
-}
-
-function buildProductString(link: Link, store: Store, color?: boolean): string {
-  if (color) {
-    if (store.currentProxyIndex !== undefined && store.proxyList) {
-      const proxy = `${store.currentProxyIndex + 1}/${store.proxyList.length}`;
-      return (
-        chalk.gray(`[${proxy}]`) +
-        chalk.cyan(` [${store.name}]`) +
-        chalk.grey(` [${link.brand} (${link.series})] ${link.model}`)
-      );
-    } else {
-      return (
-        chalk.cyan(`[${store.name}]`) +
-        chalk.grey(` [${link.brand} (${link.series})] ${link.model}`)
-      );
-    }
-  }
-
-  if (store.currentProxyIndex !== undefined && store.proxyList) {
-    const proxy = `${store.currentProxyIndex + 1}/${store.proxyList.length}`;
-    return `[${proxy}] [${store.name}] [${link.brand} (${link.series})] ${link.model}`;
-  } else {
-    return `[${store.name}] [${link.brand} (${link.series})] ${link.model}`;
-  }
-}
+// Export initialization function to be called at startup
+export const initializeStatusDisplay = (stores: Store[], products: {store: Store; link: Link}[]) => {
+  initializeDisplay(stores, products);
+};

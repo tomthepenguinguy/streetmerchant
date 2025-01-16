@@ -1,4 +1,5 @@
 import {Store} from './store';
+import {getProductLinksBuilder} from './helpers/card';
 
 export const TheWarehouse: Store = {
   currency: '$',
@@ -36,4 +37,21 @@ export const TheWarehouse: Store = {
     },
   ],
   name: 'thewarehouse',
+  linksBuilder: {
+    builder: getProductLinksBuilder({
+      productsSelector: '.product-tile',
+      sitePrefix: 'https://www.thewarehouse.co.nz',
+      titleSelector: '.product-title',
+    }),
+    urls: [
+      {
+        series: 'ps5',
+        url: 'https://www.thewarehouse.co.nz/c/playstation-5',
+      },
+      {
+        series: 'xbox',
+        url: 'https://www.thewarehouse.co.nz/c/xbox-series-x',
+      },
+    ],
+  },
 };

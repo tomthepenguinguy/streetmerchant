@@ -1,4 +1,5 @@
 import {Store} from './store';
+import {getProductLinksBuilder} from './helpers/card';
 
 export const Zotac: Store = {
   backoffStatusCodes: [403, 503],
@@ -116,4 +117,17 @@ export const Zotac: Store = {
     },
   ],
   name: 'zotac',
+  linksBuilder: {
+    builder: getProductLinksBuilder({
+      productsSelector: '.product-item',
+      sitePrefix: 'https://www.zotac.com',
+      titleSelector: '.product-title',
+    }),
+    urls: [
+      {
+        series: 'rtx',
+        url: 'https://www.zotac.com/us/product/graphics_card',
+      },
+    ],
+  },
 };

@@ -1,4 +1,5 @@
 import {Store} from './store';
+import {getProductLinksBuilder} from './helpers/card';
 
 export const XtremMedia: Store = {
   currency: '€',
@@ -460,5 +461,18 @@ export const XtremMedia: Store = {
       url: 'https://xtremmedia.com/Zotac_GeForce_RTX_3070Ti_Trinity_8GB_GDDR6X.html',
     },
   ],
+  linksBuilder: {
+    builder: getProductLinksBuilder({
+      productsSelector: '.product-item',
+      sitePrefix: 'https://www.xtremmedia.com',
+      titleSelector: '.product-title',
+    }),
+    urls: [
+      {
+        series: 'rtx',
+        url: 'https://www.xtremmedia.com/rtx-graphics-cards',
+      },
+    ],
+  },
   name: 'xtremmedia',
 };

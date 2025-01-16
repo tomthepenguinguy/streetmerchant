@@ -1,4 +1,5 @@
 import {Store} from './store';
+import {getProductLinksBuilder} from './helpers/card';
 
 export const SmythsToys: Store = {
   currency: '£',
@@ -37,4 +38,21 @@ export const SmythsToys: Store = {
     },
   ],
   name: 'smythstoys',
+  linksBuilder: {
+    builder: getProductLinksBuilder({
+      productsSelector: '.product-list-item',
+      sitePrefix: 'https://www.smythstoys.com',
+      titleSelector: '.product-title',
+    }),
+    urls: [
+      {
+        series: 'ps5',
+        url: 'https://www.smythstoys.com/uk/en-gb/video-games-and-tablets/playstation-5/playstation-5-consoles',
+      },
+      {
+        series: 'xbox',
+        url: 'https://www.smythstoys.com/uk/en-gb/video-games-and-tablets/xbox-series-x',
+      },
+    ],
+  },
 };
